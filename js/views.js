@@ -24,7 +24,7 @@ export const Home = {
 
     if (!Store.state.events.length && !Store.state.products.length) {
       return '<div class="empty"><div class="ico">💨</div><h3>Benvenuto</h3><p>Se hai il backup della vecchia app, importalo: converto tutto io.</p>' +
-        '<div class="gap"></div><button class="btn primary" data-a="import">Importa backup</button>' +
+        '<div class="gap"></div>' + importButton('Importa backup', 'primary') +
         '<div class="gap"></div><button class="btn" data-nav="settings">Parto da zero: impostazioni</button></div>';
     }
 
@@ -104,7 +104,7 @@ export const Home = {
     }
     on(root, {
       refill: () => F.refill(), buy: () => F.buy(), coil: () => F.coilChange(),
-      review: () => reviewSheet(), import: () => importFile(),
+      review: () => reviewSheet(),
       rebuy: t => F.buy({ pid: t.dataset.pid })
     });
   }
@@ -417,7 +417,7 @@ export const Settings = {
       field('Pod (ml)', '<input class="inp num" id="s-pod" inputmode="decimal" value="' + esc(dec(S.device.podMl)) + '">') + '</div>' +
       '<button class="btn primary full" data-a="save">Salva</button></div>' +
       '<div class="card"><h3>Backup</h3><p class="small muted" style="margin-top:0">I dati stanno solo su questo telefono. Esporta un backup ogni tanto e mettilo in File o iCloud: se Safari cancella i dati, lo reimporti.</p>' +
-      '<div class="btn-row"><button class="btn" data-a="export">⬆︎ Esporta</button><button class="btn" data-a="import">⬇︎ Importa</button></div>' +
+      '<div class="btn-row"><button class="btn" data-a="export">⬆︎ Esporta</button>' + importButton('⬇︎ Importa') + '</div>' +
       (Store.hasPrevious() ? '<button class="btn ghost full" data-a="prev" style="margin-top:8px">Torna ai dati di prima dell\'ultima importazione</button>' : '') +
       '<div class="small faint" style="margin-top:10px">' + n + ' eventi · ' + Store.state.products.length + ' prodotti' +
       (Store.state.migratedFrom ? ' · convertiti dalla v1 il ' + esc(String(Store.state.migratedFrom.at).slice(0, 10)) : '') + '</div></div>' +
@@ -436,7 +436,6 @@ export const Settings = {
         toast('Salvato', 'ok');
       },
       export: () => exportFile(),
-      import: () => importFile(),
       prev: () => confirmSheet('Tornare indietro?', 'Rimetto i dati com\'erano prima dell\'ultima importazione (e tengo da parte quelli di adesso).', 'Torna indietro', () => { Store.restorePrevious(); toast('Fatto', 'ok'); }),
       wipe: () => confirmSheet('Cancellare tutto?', 'Spariscono tutti i dati da questo telefono. Prima esporta un backup.', 'Cancella tutto', () => {
         Store.replace({ schema: 2, settings: Store.state.settings, products: [], events: [], review: [] }); toast('Dati cancellati (recuperabili da «Torna ai dati di prima»)');
@@ -466,26 +465,44 @@ export async function exportFile() {
   toast('Backup scaricato', 'ok');
 }
 
-export function importFile() {
-  const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = '.json,application/json';
-  inp.onchange = () => {
-    const f = inp.files && inp.files[0];
-    if (!f) return;
-    f.text().then(txt => {
-      let r;
-      try { r = Store.parseBackup(txt); } catch (e) { toast('File non valido: ' + e.message, 'err'); return; }
-      const st = r.state;
-      const A = analyze(st);
-      const asks = st.review.filter(x => x.kind === 'ask').length;
-      confirmSheet(r.from === 'v1' ? 'Backup della vecchia app' : 'Ripristinare il backup?',
-        st.products.length + ' prodotti, ' + st.events.length + ' eventi, ' + fmt.eur(A.spent) + ' di spese.' +
-        (r.from === 'v1' ? ' L\'ho convertito: ' + asks + ' cose da sistemare te le mostro in Oggi.' : '') +
-        (Store.state.events.length ? ' I dati attuali li tengo da parte, puoi tornarci da Impostazioni.' : ''),
-        'Importa', () => { Store.replace(st); toast('Importato', 'ok'); App.go('home'); });
-    });
-  };
-  inp.click();
+/* Su iPhone un selettore di file creato al volo e «cliccato» dal codice spesso non si apre,
+   o non avvisa quando scegli il file. Qui il campo file è vero, sta nella pagina e copre il
+   pulsante: il tocco arriva direttamente a lui. Nessun filtro sul tipo: iOS a volte rende
+   grigi i .json arrivati da Android. */
+export function importButton(label, cls) {
+  return '<label class="btn ' + (cls || '') + '" style="position:relative;overflow:hidden">' + label +
+    '<input type="file" data-import aria-label="Scegli il file di backup" ' +
+    'style="position:absolute;inset:0;width:100%;height:100%;opacity:0;font-size:200px;cursor:pointer"></label>';
+}
+
+document.addEventListener('change', e => {
+  const inp = e.target;
+  if (!inp || !inp.matches || !inp.matches('input[data-import]')) return;
+  const f = inp.files && inp.files[0];
+  inp.value = '';
+  if (f) readBackup(f);
+});
+
+function readText(f) {
+  if (f.text) return f.text();
+  return new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ko(r.error); r.readAsText(f); });
+}
+
+export function readBackup(f) {
+  toast('Leggo «' + f.name + '»…');
+  readText(f).then(txt => {
+    let r;
+    try { r = Store.parseBackup(String(txt).replace(/^\uFEFF/, '')); }
+    catch (e) { toast('Non è un backup di Svapometro (' + (e.message || 'formato') + ')', 'err'); return; }
+    const st = r.state;
+    const A = analyze(st);
+    const asks = st.review.filter(x => x.kind === 'ask').length;
+    confirmSheet(r.from === 'v1' ? 'Backup della vecchia app' : 'Ripristinare il backup?',
+      st.products.length + ' prodotti, ' + st.events.length + ' eventi, ' + fmt.eur(A.spent) + ' di spese.' +
+      (r.from === 'v1' ? ' L\'ho convertito: ' + asks + ' cose da sistemare te le mostro in Oggi.' : '') +
+      (Store.state.events.length ? ' I dati attuali li tengo da parte, puoi tornarci da Impostazioni.' : ''),
+      'Importa', () => { Store.replace(st); toast('Importato', 'ok'); App.go('home'); });
+  }).catch(e => toast('Non riesco a leggere il file: ' + (e && e.message ? e.message : e), 'err'));
 }
 
 /* ============================================================ DA SISTEMARE */
