@@ -1,5 +1,5 @@
 /* Funziona senza rete: l'app è in cache, si aggiorna quando c'è connessione. */
-const VERSION = 'svapometro-v2-002';
+const VERSION = 'svapometro-v2-003';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/model.js', 'js/migrate.js', 'js/calc.js', 'js/store.js', 'js/ui.js', 'js/catalog.js', 'js/flows.js', 'js/views.js',
